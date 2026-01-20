@@ -79,8 +79,6 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/google-workspace-mcp:${{ steps.latest_release.outputs.version }}
             ${{ secrets.DOCKERHUB_USERNAME }}/google-workspace-mcp:latest
-          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/google-workspace-mcp:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/google-workspace-mcp:buildcache,mode=max
 
       - name: Update last built version
         if: steps.compare.outputs.build_needed == 'true'

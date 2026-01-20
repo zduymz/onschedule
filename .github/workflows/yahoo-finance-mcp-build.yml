@@ -1,0 +1,111 @@
+name: Build Yahoo Finance MCP
+
+on:
+  schedule:
+    # Run daily at 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    # Allow manual triggering
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+    environment: default
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read last built commit
+        id: last_commit
+        run: |
+          if [ -f .checkpoints/yahoo-finance-mcp-commit ]; then
+            LAST_COMMIT=$(cat .checkpoints/yahoo-finance-mcp-commit)
+            echo "commit=$LAST_COMMIT" >> $GITHUB_OUTPUT
+          else
+            echo "commit=" >> $GITHUB_OUTPUT
+          fi
+          echo "Last built commit: $LAST_COMMIT"
+
+      - name: Get latest commit from source repository
+        id: latest_commit
+        run: |
+          LATEST_COMMIT=$(curl -s https://api.github.com/repos/Alex2Yang97/yahoo-finance-mcp/commits/main | jq -r '.sha')
+          SHORT_COMMIT=$(echo $LATEST_COMMIT | cut -c1-7)
+          echo "sha=$LATEST_COMMIT" >> $GITHUB_OUTPUT
+          echo "short=$SHORT_COMMIT" >> $GITHUB_OUTPUT
+          echo "Latest commit: $LATEST_COMMIT"
+
+      - name: Compare commits
+        id: compare
+        run: |
+          LAST_COMMIT="${{ steps.last_commit.outputs.commit }}"
+          LATEST_COMMIT="${{ steps.latest_commit.outputs.sha }}"
+
+          if [ "$LAST_COMMIT" != "$LATEST_COMMIT" ]; then
+            echo "New commit detected: $LATEST_COMMIT (previous: $LAST_COMMIT)"
+            echo "build_needed=true" >> $GITHUB_OUTPUT
+          else
+            echo "No new commit. Current: $LATEST_COMMIT"
+            echo "build_needed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout source repository
+        if: steps.compare.outputs.build_needed == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: Alex2Yang97/yahoo-finance-mcp
+          ref: ${{ steps.latest_commit.outputs.sha }}
+          path: source
+
+      - name: Set up Docker Buildx
+        if: steps.compare.outputs.build_needed == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: steps.compare.outputs.build_needed == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        if: steps.compare.outputs.build_needed == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./source
+          file: ./source/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/yahoo-finance-mcp:${{ steps.latest_commit.outputs.short }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/yahoo-finance-mcp:latest
+
+      - name: Update last built commit
+        if: steps.compare.outputs.build_needed == 'true'
+        run: |
+          mkdir -p .checkpoints
+          echo "${{ steps.latest_commit.outputs.sha }}" > .checkpoints/yahoo-finance-mcp-commit
+          echo "Updated yahoo-finance-mcp-commit to ${{ steps.latest_commit.outputs.sha }}"
+
+      - name: Commit and push commit file
+        if: steps.compare.outputs.build_needed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .checkpoints/yahoo-finance-mcp-commit
+          git commit -m "Update yahoo-finance-mcp to ${{ steps.latest_commit.outputs.short }}"
+          git push
+
+      - name: Build summary
+        if: always()
+        run: |
+          if [ "${{ steps.compare.outputs.build_needed }}" == "true" ]; then
+            echo "✅ Built and pushed commit ${{ steps.latest_commit.outputs.short }}"
+            echo "Images pushed:"
+            echo "- ${{ secrets.DOCKERHUB_USERNAME }}/yahoo-finance-mcp:${{ steps.latest_commit.outputs.short }}"
+            echo "- ${{ secrets.DOCKERHUB_USERNAME }}/yahoo-finance-mcp:latest"
+          else
+            echo "ℹ️ No build needed. Already on latest commit: ${{ steps.latest_commit.outputs.short }}"
+          fi
