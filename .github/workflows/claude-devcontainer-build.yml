@@ -1,4 +1,4 @@
-name: Build Google Workspace MCP
+name: Build Claude Devcontainer
 
 on:
   schedule:
@@ -21,18 +21,18 @@ jobs:
       - name: Read last built version
         id: last_version
         run: |
-          if [ -f .checkpoints/google-workspace-mcp-version ]; then
-            LAST_VERSION=$(cat .checkpoints/google-workspace-mcp-version)
+          if [ -f .checkpoints/claude-devcontainer-version ]; then
+            LAST_VERSION=$(cat .checkpoints/claude-devcontainer-version)
             echo "version=$LAST_VERSION" >> $GITHUB_OUTPUT
           else
-            echo "version=v0.0.0" >> $GITHUB_OUTPUT
+            echo "version=0.0.0" >> $GITHUB_OUTPUT
           fi
           echo "Last built version: $LAST_VERSION"
 
-      - name: Get latest release from source repository
+      - name: Get latest Claude Code version from npm
         id: latest_release
         run: |
-          LATEST_VERSION=$(curl -s https://api.github.com/repos/taylorwilsdon/google_workspace_mcp/releases/latest | jq -r '.tag_name')
+          LATEST_VERSION=$(curl -s https://registry.npmjs.org/@anthropic-ai/claude-code/latest | jq -r '.version')
           echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
           echo "Latest release version: $LATEST_VERSION"
 
@@ -49,14 +49,6 @@ jobs:
             echo "No new version. Current version: $LATEST_VERSION"
             echo "build_needed=false" >> $GITHUB_OUTPUT
           fi
-
-      - name: Checkout source repository
-        if: steps.compare.outputs.build_needed == 'true'
-        uses: actions/checkout@v4
-        with:
-          repository: taylorwilsdon/google_workspace_mcp
-          ref: ${{ steps.latest_release.outputs.version }}
-          path: source
 
       - name: Set up QEMU
         if: steps.compare.outputs.build_needed == 'true'
@@ -77,27 +69,28 @@ jobs:
         if: steps.compare.outputs.build_needed == 'true'
         uses: docker/build-push-action@v5
         with:
-          context: ./source
-          file: ./source/Dockerfile
+          context: ./devcontainer
+          file: ./devcontainer/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/google-workspace-mcp:${{ steps.latest_release.outputs.version }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/google-workspace-mcp:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/claude-devcontainer:${{ steps.latest_release.outputs.version }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/claude-devcontainer:latest
 
       - name: Update last built version
         if: steps.compare.outputs.build_needed == 'true'
         run: |
-          echo "${{ steps.latest_release.outputs.version }}" > .checkpoints/google-workspace-mcp-version
-          echo "Updated google-workspace-mcp-version to ${{ steps.latest_release.outputs.version }}"
+          mkdir -p .checkpoints
+          echo "${{ steps.latest_release.outputs.version }}" > .checkpoints/claude-devcontainer-version
+          echo "Updated claude-devcontainer-version to ${{ steps.latest_release.outputs.version }}"
 
       - name: Commit and push version file
         if: steps.compare.outputs.build_needed == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .checkpoints/google-workspace-mcp-version
-          git commit -m "Update google-workspace-mcp to ${{ steps.latest_release.outputs.version }}"
+          git add .checkpoints/claude-devcontainer-version
+          git commit -m "Update claude-devcontainer to ${{ steps.latest_release.outputs.version }}"
           git push
 
       - name: Build summary
@@ -106,8 +99,8 @@ jobs:
           if [ "${{ steps.compare.outputs.build_needed }}" == "true" ]; then
             echo "✅ Built and pushed version ${{ steps.latest_release.outputs.version }}"
             echo "Images pushed:"
-            echo "- ${{ secrets.DOCKERHUB_USERNAME }}/google-workspace-mcp:${{ steps.latest_release.outputs.version }}"
-            echo "- ${{ secrets.DOCKERHUB_USERNAME }}/google-workspace-mcp:latest"
+            echo "- ${{ secrets.DOCKERHUB_USERNAME }}/claude-devcontainer:${{ steps.latest_release.outputs.version }}"
+            echo "- ${{ secrets.DOCKERHUB_USERNAME }}/claude-devcontainer:latest"
           else
             echo "ℹ️ No build needed. Already on latest version: ${{ steps.latest_release.outputs.version }}"
           fi

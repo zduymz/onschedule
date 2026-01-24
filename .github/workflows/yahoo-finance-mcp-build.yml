@@ -60,6 +60,10 @@ jobs:
           ref: ${{ steps.latest_commit.outputs.sha }}
           path: source
 
+      - name: Set up QEMU
+        if: steps.compare.outputs.build_needed == 'true'
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         if: steps.compare.outputs.build_needed == 'true'
         uses: docker/setup-buildx-action@v3
@@ -78,6 +82,7 @@ jobs:
           context: ./source
           file: ./source/Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/yahoo-finance-mcp:${{ steps.latest_commit.outputs.short }}
             ${{ secrets.DOCKERHUB_USERNAME }}/yahoo-finance-mcp:latest
