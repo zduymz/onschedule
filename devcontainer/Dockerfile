@@ -44,7 +44,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 
 # Install Claude Code standalone binary
-RUN curl -fsSL https://claude.ai/install.sh | sh
+RUN curl -fsSL https://claude.ai/install.sh | bash -s -- -y
 ENV PATH="/root/.claude/local/bin:${PATH}"
 
 # Set default working directory
