@@ -9,7 +9,7 @@ on:
 
 jobs:
   check-and-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     environment: default
 
     steps:
@@ -50,10 +50,6 @@ jobs:
             echo "build_needed=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up QEMU
-        if: steps.compare.outputs.build_needed == 'true'
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         if: steps.compare.outputs.build_needed == 'true'
         uses: docker/setup-buildx-action@v3
@@ -72,7 +68,9 @@ jobs:
           context: ./devcontainer
           file: ./devcontainer/Dockerfile
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/arm64
+          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/claude-devcontainer:cache
+          cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/claude-devcontainer:cache,mode=max
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/claude-devcontainer:${{ steps.latest_release.outputs.version }}
             ${{ secrets.DOCKERHUB_USERNAME }}/claude-devcontainer:latest

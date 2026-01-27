@@ -1,0 +1,226 @@
+#!/bin/bash
+#
+# claude-wrapper - Run claude inside devcontainer if available
+#
+# Usage: claude-wrapper [OPTIONS] [claude arguments...]
+#
+# Options:
+#   --host          Force running claude on host (skip devcontainer)
+#   --verbose, -v   Enable verbose output
+#   --yolo          Skip permission prompts (adds --dangerously-skip-permissions)
+#   --help, -h      Show this help message
+#
+# If current directory has a devcontainer setup, starts the container
+# and runs claude inside it. Otherwise runs claude directly.
+
+set -euo pipefail
+
+# Configuration
+VERBOSE=false
+FORCE_HOST=false
+YOLO_MODE=false
+CLAUDE_ARGS=()
+
+# Color codes for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Logging functions
+log_info() {
+    echo -e "${GREEN}[INFO]${NC} $*" >&2
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $*" >&2
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $*" >&2
+}
+
+log_verbose() {
+    if [[ "$VERBOSE" == "true" ]]; then
+        echo -e "[DEBUG] $*" >&2
+    fi
+}
+
+# Show help message
+show_help() {
+    cat << EOF
+claude-wrapper - Run claude inside devcontainer if available
+
+Usage: claude-wrapper [OPTIONS] [claude arguments...]
+
+Options:
+  --host          Force running claude on host (skip devcontainer)
+  --verbose, -v   Enable verbose output
+  --yolo          Skip permission prompts (adds --dangerously-skip-permissions)
+  --help, -h      Show this help message
+
+Examples:
+  claude-wrapper                    # Start claude (in devcontainer if available)
+  claude-wrapper --host             # Force running on host
+  claude-wrapper --verbose          # Run with debug output
+  claude-wrapper --yolo             # Run with --dangerously-skip-permissions
+  claude-wrapper -v -- --help       # Pass --help to claude itself
+
+If current directory has a devcontainer setup (.devcontainer/ or
+.devcontainer.json), the script will start the container and run
+claude inside it. Otherwise, it runs claude directly on the host.
+EOF
+}
+
+# Parse wrapper arguments
+# This function modifies global variables and returns remaining args via the CLAUDE_ARGS array
+parse_args() {
+    CLAUDE_ARGS=()
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --host)
+                FORCE_HOST=true
+                shift
+                ;;
+            --verbose|-v)
+                VERBOSE=true
+                shift
+                ;;
+            --yolo)
+                YOLO_MODE=true
+                shift
+                ;;
+            --help|-h)
+                show_help
+                exit 0
+                ;;
+            --)
+                shift
+                CLAUDE_ARGS+=("$@")
+                break
+                ;;
+            *)
+                CLAUDE_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+}
+
+# Check if devcontainer CLI is available
+check_devcontainer_cli() {
+    if ! command -v devcontainer &>/dev/null; then
+        log_error "devcontainer CLI not found"
+        log_info "Install with: npm install -g @devcontainers/cli"
+        return 1
+    fi
+    log_verbose "devcontainer CLI found: $(command -v devcontainer)"
+}
+
+# Check if current directory has devcontainer setup
+has_devcontainer() {
+    if [[ -d ".devcontainer" ]]; then
+        log_verbose "Found .devcontainer/ directory"
+        return 0
+    elif [[ -f ".devcontainer.json" ]]; then
+        log_verbose "Found .devcontainer.json file"
+        return 0
+    elif [[ -f "devcontainer.json" ]]; then
+        log_verbose "Found devcontainer.json file"
+        return 0
+    elif [[ -f ".devcontainer/devcontainer.json" ]]; then
+        log_verbose "Found .devcontainer/devcontainer.json file"
+        return 0
+    fi
+    log_verbose "No devcontainer configuration found"
+    return 1
+}
+
+# Check if devcontainer is already running
+is_devcontainer_running() {
+    # Try to get container info - if it succeeds, container is running
+    if devcontainer exec --workspace-folder . echo "ping" &>/dev/null; then
+        log_verbose "Devcontainer is already running"
+        return 0
+    fi
+    log_verbose "Devcontainer is not running"
+    return 1
+}
+
+# Run claude inside devcontainer
+run_in_devcontainer() {
+    check_devcontainer_cli || exit 1
+
+    log_info "Devcontainer detected"
+
+    # Check if already running to provide better feedback
+    if is_devcontainer_running; then
+        log_verbose "Using existing devcontainer"
+    else
+        log_info "Starting devcontainer..."
+
+        # Start the devcontainer (idempotent - safe to run if already running)
+        if ! devcontainer up --workspace-folder . >&2; then
+            log_error "Failed to start devcontainer"
+            exit 1
+        fi
+
+        log_info "Devcontainer started successfully"
+    fi
+
+    log_verbose "Executing claude inside devcontainer with args: $*"
+
+    # Build claude command with optional --dangerously-skip-permissions
+    local claude_cmd=(claude)
+    if [[ "$YOLO_MODE" == "true" ]]; then
+        log_warn "YOLO mode enabled - skipping permission prompts"
+        claude_cmd+=(--dangerously-skip-permissions)
+    fi
+    claude_cmd+=("$@")
+
+    # Execute claude inside the container with all passed arguments
+    exec devcontainer exec --workspace-folder . "${claude_cmd[@]}"
+}
+
+# Run claude directly on host
+run_on_host() {
+    if ! command -v claude &>/dev/null; then
+        log_error "claude not found in PATH"
+        log_info "Install Claude Code from: https://claude.com/claude-code"
+        exit 1
+    fi
+
+    log_verbose "Running claude on host: $(command -v claude)"
+    log_verbose "Arguments: $*"
+
+    # Build claude command with optional --dangerously-skip-permissions
+    if [[ "$YOLO_MODE" == "true" ]]; then
+        log_warn "YOLO mode enabled - skipping permission prompts"
+        exec claude --dangerously-skip-permissions "$@"
+    else
+        exec claude "$@"
+    fi
+}
+
+# Main
+main() {
+    # Parse wrapper-specific arguments (modifies CLAUDE_ARGS global)
+    parse_args "$@"
+
+    log_verbose "Working directory: $PWD"
+    log_verbose "Force host mode: $FORCE_HOST"
+    log_verbose "YOLO mode: $YOLO_MODE"
+    log_verbose "Claude arguments: ${CLAUDE_ARGS[*]+"${CLAUDE_ARGS[*]}"}"
+
+    if [[ "$FORCE_HOST" == "true" ]]; then
+        log_verbose "Forcing host mode (skipping devcontainer detection)"
+        run_on_host "${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}"
+    elif has_devcontainer; then
+        run_in_devcontainer "${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}"
+    else
+        log_verbose "No devcontainer found, running on host"
+        run_on_host "${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}"
+    fi
+}
+
+main "$@"

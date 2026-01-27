@@ -14,6 +14,11 @@ RUN apt-get update && apt-get install -y \
     lsb-release \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Node.js LTS via NodeSource
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Terraform CLI via HashiCorp APT repository
 RUN curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" > /etc/apt/sources.list.d/hashicorp.list \
@@ -46,6 +51,10 @@ ENV PATH="/root/.local/bin:${PATH}"
 # Install Claude Code standalone binary
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/root/.claude/local/bin:${PATH}"
+
+# Install marketplace plugin
+RUN claude plugin marketplace add jarrodwatts/claude-hud && \
+  claude plugin install claude-hud
 
 # Set default working directory
 WORKDIR /workspace
