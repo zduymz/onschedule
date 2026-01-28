@@ -9,7 +9,7 @@ on:
 
 jobs:
   check-and-build:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-24.04
     environment: default
 
     steps:
@@ -78,7 +78,7 @@ jobs:
           context: ./source
           file: ./source/Dockerfile
           push: true
-          platforms: linux/arm64
+          platforms: linux/amd64
           cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/yahoo-finance-mcp:cache
           cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/yahoo-finance-mcp:cache,mode=max
           tags: |
