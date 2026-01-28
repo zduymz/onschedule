@@ -45,17 +45,12 @@ RUN ARCH=$(uname -m) && \
     ./aws/install && \
     rm -rf awscliv2.zip aws
 
-# Install uv via official installer
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:${PATH}"
+# Install uv via official installer (system-wide)
+RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh
 
-# Install Claude Code standalone binary
-RUN curl -fsSL https://claude.ai/install.sh | bash
-ENV PATH="/root/.claude/local/bin:${PATH}"
-
-# Install marketplace plugin
-RUN claude plugin marketplace add jarrodwatts/claude-hud && \
-  claude plugin install claude-hud
+# Install Claude Code as ubuntu user
+RUN su - ubuntu -c "curl -fsSL https://claude.ai/install.sh | bash"
+ENV PATH="/home/ubuntu/.local/bin:${PATH}"
 
 # Set default working directory
 WORKDIR /workspace
