@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     unzip \
     gpg \
     git \
+    jq \
     ca-certificates \
     software-properties-common \
     apt-transport-https \
