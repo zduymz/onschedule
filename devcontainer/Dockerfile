@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     software-properties-common \
     apt-transport-https \
     lsb-release \
+    tmux \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js LTS via NodeSource
@@ -51,6 +52,10 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin s
 # Install Claude Code as ubuntu user
 RUN su - ubuntu -c "curl -fsSL https://claude.ai/install.sh | bash"
 ENV PATH="/home/ubuntu/.local/bin:${PATH}"
+
+# Copy tmux configuration
+COPY tmux.conf /home/ubuntu/.tmux.conf
+RUN chown ubuntu:ubuntu /home/ubuntu/.tmux.conf
 
 # Set default working directory
 WORKDIR /workspace
