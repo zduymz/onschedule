@@ -6,6 +6,8 @@
 #
 # Options:
 #   --host          Force running claude on host (skip devcontainer)
+#   --refresh       Force refresh of devcontainer (recreate with new config)
+#   --tmux          Run claude inside a tmux session
 #   --verbose, -v   Enable verbose output
 #   --yolo          Skip permission prompts (adds --dangerously-skip-permissions)
 #   --help, -h      Show this help message
@@ -18,7 +20,10 @@ set -euo pipefail
 # Configuration
 VERBOSE=false
 FORCE_HOST=false
+REFRESH=false
 YOLO_MODE=false
+TMUX_MODE=false
+TMUX_SESSION_NAME="sandbox"
 CLAUDE_ARGS=()
 
 # Color codes for output
@@ -55,6 +60,8 @@ Usage: claude-wrapper [OPTIONS] [claude arguments...]
 
 Options:
   --host          Force running claude on host (skip devcontainer)
+  --refresh       Force refresh of devcontainer (recreate with new config)
+  --tmux          Run claude inside a tmux session
   --verbose, -v   Enable verbose output
   --yolo          Skip permission prompts (adds --dangerously-skip-permissions)
   --help, -h      Show this help message
@@ -62,6 +69,9 @@ Options:
 Examples:
   claude-wrapper                    # Start claude (in devcontainer if available)
   claude-wrapper --host             # Force running on host
+  claude-wrapper --tmux             # Run claude inside tmux session
+  claude-wrapper --tmux --yolo      # Run in tmux with dangerously-skip-permissions
+  claude-wrapper --refresh          # Recreate devcontainer with updated config
   claude-wrapper --verbose          # Run with debug output
   claude-wrapper --yolo             # Run with --dangerously-skip-permissions
   claude-wrapper -v -- --help       # Pass --help to claude itself
@@ -82,12 +92,20 @@ parse_args() {
                 FORCE_HOST=true
                 shift
                 ;;
+            --refresh)
+                REFRESH=true
+                shift
+                ;;
             --verbose|-v)
                 VERBOSE=true
                 shift
                 ;;
             --yolo)
                 YOLO_MODE=true
+                shift
+                ;;
+            --tmux)
+                TMUX_MODE=true
                 shift
                 ;;
             --help|-h)
@@ -153,14 +171,27 @@ run_in_devcontainer() {
 
     log_info "Devcontainer detected"
 
+    # Build devcontainer up command arguments
+    local up_args=(--workspace-folder .)
+
+    # Handle refresh mode - remove existing container and rebuild
+    if [[ "$REFRESH" == "true" ]]; then
+        log_warn "Refresh mode enabled - recreating devcontainer"
+        up_args+=(--remove-existing-container)
+
+        if ! devcontainer up "${up_args[@]}" >&2; then
+            log_error "Failed to recreate devcontainer"
+            exit 1
+        fi
+        log_info "Devcontainer recreated successfully"
     # Check if already running to provide better feedback
-    if is_devcontainer_running; then
+    elif is_devcontainer_running; then
         log_verbose "Using existing devcontainer"
     else
         log_info "Starting devcontainer..."
 
         # Start the devcontainer (idempotent - safe to run if already running)
-        if ! devcontainer up --workspace-folder . >&2; then
+        if ! devcontainer up "${up_args[@]}" >&2; then
             log_error "Failed to start devcontainer"
             exit 1
         fi
@@ -178,8 +209,18 @@ run_in_devcontainer() {
     fi
     claude_cmd+=("$@")
 
-    # Execute claude inside the container with all passed arguments
-    exec devcontainer exec --workspace-folder . "${claude_cmd[@]}"
+    if [[ "$TMUX_MODE" == "true" ]]; then
+        log_info "Running claude in tmux session: $TMUX_SESSION_NAME"
+        # Check if session exists, attach if so, otherwise create new
+        # This handles the case where tmux server isn't running
+        local tmux_cmd="tmux has-session -t ${TMUX_SESSION_NAME} 2>/dev/null && tmux attach -t ${TMUX_SESSION_NAME} || tmux new-session -s ${TMUX_SESSION_NAME} \\; send-keys '${claude_cmd[*]}' Enter"
+        # export LC_ALL=en_IN.UTF-8; export LANG=en_IN.UTF-8 hack for broken font in claude
+        # adding option -u force tmux exit immediately
+        exec devcontainer exec --workspace-folder . bash -c "export LANG=en_IN.UTF-8; $tmux_cmd"
+    else
+        # Execute claude inside the container with all passed arguments
+        exec devcontainer exec --workspace-folder . "${claude_cmd[@]}"
+    fi
 }
 
 # Run claude directly on host
@@ -194,11 +235,29 @@ run_on_host() {
     log_verbose "Arguments: $*"
 
     # Build claude command with optional --dangerously-skip-permissions
+    local claude_cmd=(claude)
     if [[ "$YOLO_MODE" == "true" ]]; then
         log_warn "YOLO mode enabled - skipping permission prompts"
-        exec claude --dangerously-skip-permissions "$@"
+        claude_cmd+=(--dangerously-skip-permissions)
+    fi
+    claude_cmd+=("$@")
+
+    if [[ "$TMUX_MODE" == "true" ]]; then
+        if ! command -v tmux &>/dev/null; then
+            log_error "tmux not found in PATH"
+            log_info "Install tmux: brew install tmux (macOS) or apt install tmux (Linux)"
+            exit 1
+        fi
+        log_info "Running claude in tmux session: $TMUX_SESSION_NAME"
+        # Check if session exists, attach if so, otherwise create new
+        # This handles the case where tmux server isn't running
+        if tmux has-session -t "$TMUX_SESSION_NAME" 2>/dev/null; then
+            exec tmux attach -t "$TMUX_SESSION_NAME"
+        else
+            exec tmux new-session -s "$TMUX_SESSION_NAME" \; send-keys "${claude_cmd[*]}" Enter
+        fi
     else
-        exec claude "$@"
+        exec "${claude_cmd[@]}"
     fi
 }
 
@@ -209,7 +268,9 @@ main() {
 
     log_verbose "Working directory: $PWD"
     log_verbose "Force host mode: $FORCE_HOST"
+    log_verbose "Refresh mode: $REFRESH"
     log_verbose "YOLO mode: $YOLO_MODE"
+    log_verbose "Tmux mode: $TMUX_MODE"
     log_verbose "Claude arguments: ${CLAUDE_ARGS[*]+"${CLAUDE_ARGS[*]}"}"
 
     if [[ "$FORCE_HOST" == "true" ]]; then
